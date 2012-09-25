@@ -5,24 +5,41 @@
  * GlotPress Elgg hack for ElggTranslate.com
  */
 
-define('ELGGLP_VERSION',					'1.0.0');
+define('ELGGLP_VERSION',			'1.0.0');
 
-define('ELGGLP_IMPORT_OK',					   -1);
-define('ELGGLP_IMPORT_ERR_STRUCTURE',			1);
-define('ELGGLP_IMPORT_ERR_VERSION',			    2);
+define('ELGGLP_OK',					   -1);
+define('ELGGLP_ERR_STRUCTURE',			1);
+define('ELGGLP_ERR_VERSION',		    2);
 
-function elgglp_create_languagepack_meta($info, $dir) {
+function elgglp_create_languagepack_meta($meta, $filters) {
+	// copy filter options used here into local variables
+	$dstdir = $filters['dst_dir'];
+	// if there no meta info yet, create an empty array
+	if ( !is_array($meta) ) $meta = array();
+	// add Elgg version to metadata
+	$meta['elgg_version'] = $filters['elgg_release'];
+	// add plugin version to metadata
+	$meta['languagepack_version'] = ELGGLP_VERSION;
 	// json-encode the meta info
-	$contents = json_encode($info);
+	$contents = json_encode($meta);
 	// write to language pack meta file
-	file_put_contents("$dir/languagepack.meta", $contents);
+	file_put_contents("$dstdir/languagepack.meta", $contents);
 }
 
-function elgglp_create_languagemod_meta($info, $dir) {
+function elgglp_create_languagemod_meta($meta, $filters) {
+	// work out the destination folder
+	$dstdir = $filters['dst_dir'];
+	if ( $meta['unique'] == 'install' ) {
+		$dstdir = "$dstdir/install";
+	} else if ( $meta['unique'] != 'core' ) {
+		$dstdir = "$dstdir/mod/$meta[unique]";
+	}
+	// create directory if necessary
+	@mkdir("$dstdir/languages", 0777, true);
 	// json-encode the meta info
-	$contents = json_encode($info);
+	$contents = json_encode($meta);
 	// write to language mod meta file
-	file_put_contents("$dir/languages/languagemod.meta", $contents);
+	file_put_contents("$dstdir/languages/languagemod.meta", $contents);
 }
 
 function elgglp_check_language_pack($dir, &$elgg_version, &$languagepack_version, $check_meta = true) {
@@ -49,7 +66,7 @@ function elgglp_check_language_pack($dir, &$elgg_version, &$languagepack_version
 		$meta = file_exists("$dir/version.php") && is_file("$dir/version.php");
 		if ( $meta ) {
 			include "$dir/version.php";
-			$elgg_version = $release;
+			$elgg_version = $elgg_version;
 			$languagepack_version = ELGGLP_VERSION;
 		}
 	}
@@ -110,28 +127,31 @@ function elgglp_tempdir($dir = false, $prefix = '') {
 }
 
 function elgglp_copy_languagemod($meta, $srcdir, $filters) {
-	$dstdir = $filters['dst_dir'];
-	if ( $meta['unique'] == 'install' ) {
-		$dstdir = "$dstdir/install";
-	} else if ( $meta['unique'] != 'core' ) {
-		$dstdir = "$dstdir/mod/$meta[unique]";
-	}
-	if ( @elgglp_copy_languages($srcdir, $dstdir, $filters) ) {
+	if ( @elgglp_copy_languages($meta, $srcdir, $filters) ) {
 		if ( $filters['needs_manifest'] ) {
-			@elgglp_create_languagemod_meta($meta, $dstdir);
+			@elgglp_create_languagemod_meta($meta, $filters);
 		}
 	}
 }
 
-function elgglp_copy_languages($srcdir, $dstdir, $filters) {
+function elgglp_copy_languages($meta, $srcdir, $filters) {
+	return elgglp_recurse_languages($meta, $srcdir, $filters, 'elgglp_copy_file');
+}
+
+function elgglp_recurse_languages($meta, $srcdir, $filters, $callback) {
 	// copy filter options used here into local variables
 	$langs = @$filters['langs'];
-	$overwrite = (bool)@$filters['overwrite'];
 	$ignore_en = (bool)@$filters['ignore_en'];
-	// keep track of whether any file was copied from this folder
-	$copied = false;
+	$return = $filters['return_array'];
+	if ( $return || !$callback ) {
+		// initialise the array for the list of detected languages
+		$found = array();
+	} else {
+		// keep track of whether any file was copied from this folder
+		$found = false;
+	}
 	// get all the files that match an Elgg language file and iterate
-	$all_files = array_merge(glob("$srcdir/languages/??.php"), glob("$srcdir/languages/??_??.php"));
+	$all_files = array_merge(glob("$srcdir/languages/??.php"), glob("$srcdir/languages/??[-_]??.php"));
 	foreach ( $all_files as $file ) {
 		// basic name of the file is the locale name
 		$lang = basename($file, '.php');
@@ -143,24 +163,43 @@ function elgglp_copy_languages($srcdir, $dstdir, $filters) {
 		if ( $ignore_en && $lang == 'en' ) {
 			continue;
 		}
-		// the destination file we should write to
-		$to_file = "$dstdir/languages/" . basename($file);
-		// if it exists already, can we overwrite it?
-		if ( !$overwrite && file_exists($to_file) ) {
-			continue;
-		}
-		// create the folder if it does not exist
-		if ( !file_exists("$dstdir/languages") ) {
-			@mkdir("$dstdir/languages", 0777, true);
-		}
-		// copy the file
-		if ( @copy($file, $to_file) ) {
-			// signal at least one file was copied
-			$copied = true;
+		if ( $return || !$callback ) {
+			$found[$lang] = $file;
+		} else {
+			if ( @call_user_func($callback, $meta, $file, $lang, $filters) ) {
+				$found = true;			
+			}
 		}
 	}
 	// all done in this folder
-	return $copied;
+	return $found;
+}
+
+function elgglp_copy_file($meta, $file, $lang, $filters) {
+	// work out the destination folder
+	$dstdir = $filters['dst_dir'];
+	if ( $meta['unique'] == 'install' ) {
+		$dstdir = "$dstdir/install";
+	} else if ( $meta['unique'] != 'core' ) {
+		$dstdir = "$dstdir/mod/$meta[unique]";
+	}
+	// copy filter options used here into local variables
+	$overwrite = (bool)@$filters['overwrite'];
+	// the destination file we should write to
+	$to_file = "$dstdir/languages/" . basename($file);
+	// if it exists already, can we overwrite it?
+	if ( !$overwrite && file_exists($to_file) ) {
+		return false;
+	}
+	// create the folder if it does not exist
+	if ( !file_exists("$dstdir/languages") ) {
+		@mkdir("$dstdir/languages", 0777, true);
+	}
+	// copy the file
+	if ( @copy($file, $to_file) ) {
+		// signal at least one file was copied
+		return true;
+	}
 }
 
 /**
@@ -250,6 +289,7 @@ function elgglp_recurse_language_pack($srcdir, $filters, $callback) {
 	$needs_meta = $filters['needs_meta'];
 	$needs_manifest = $filters['needs_manifest'];
 	$return = $filters['return_array'];
+	$releases = (array)$filters['elgg_release'];
 	// check whether it is a valid Elgg Language Pack
 	$elgg_version = null;
 	$languagepack_version = null;
@@ -257,10 +297,11 @@ function elgglp_recurse_language_pack($srcdir, $filters, $callback) {
 		return ELGGLP_IMPORT_ERR_STRUCTURE;
 	}
 	// is the language pack for the right Language Pack or Elgg version?
-	$release = get_version(true);
-	if ( $release != $elgg_version || '1.0.0' != $languagepack_version ) {
+	if ( !in_array($elgg_version, $releases) || ELGGLP_VERSION != $languagepack_version ) {
 		return ELGGLP_IMPORT_ERR_VERSION;
 	}
+	// set the detected version into the filters data
+	$filters['elgg_release'] = $elgg_version;
 	// should return list of language mods?
 	if ( $return ) {
 		$allmods = array();
@@ -268,24 +309,36 @@ function elgglp_recurse_language_pack($srcdir, $filters, $callback) {
 	// unless filtered, process the core language files
 	if ( empty($projs) || in_array('core', $projs) ) {
 		$meta = array(
-			'version' => $release,
+			'version' => $elgg_version,
 			'name' => 'Elgg Core',
 			'description' => 'The core elements of the social networking engine',
 			'unique' => 'core',
 		);
-		if ( $callback ) @$callback($meta, $srcdir, $filters);
-		if ( $return ) $allmods[] = $meta;
+		if ( $return ) {
+			if ( ($alllangs = elgglp_recurse_languages($meta, $srcdir, $filters, null)) ) {
+				$meta['langs'] = $alllangs;
+				$allmods[] = $meta;
+			}
+		} else if ( $callback ) {
+			@call_user_func($callback, $meta, $srcdir, $filters);
+		}
 	}
 	// unless filtered, process the install language files
 	if ( empty($projs) || in_array('install', $projs) ) {
 		$meta = array(
-			'version' => $release,
+			'version' => $elgg_version,
 			'name' => 'Elgg Install',
 			'description' => 'Install wizard for setting up and configuring a new Elgg instance, or upgrading an existing one',
 			'unique' => 'install',
 		);
-		if ( $callback ) @$callback($meta, "$srcdir/install", $filters);
-		if ( $return ) $allmods[] = $meta;
+		if ( $return ) {
+			if ( ($alllangs = elgglp_recurse_languages($meta, "$srcdir/install", $filters, null)) ) {
+				$meta['langs'] = $alllangs;
+				$allmods[] = $meta;
+			}
+		} else if ( $callback ) {
+			@call_user_func($callback, $meta, "$srcdir/install", $filters);
+		}
 	}
 	// loop through all directories in mod/ looking for language mods
 	$dir = dir("$srcdir/mod");
@@ -302,16 +355,46 @@ function elgglp_recurse_language_pack($srcdir, $filters, $callback) {
 			if ( !$meta_exists && !$manifest_exists ) continue;
 			// try and create meta data from either
 			if ( (!$needs_meta || $meta_exists) && (!$needs_manifest || $manifest_exists) ) {
-				if ( !$meta_exists || !is_array($meta = elgglp_read_meta($curdir)) ) {
-					if ( !$manifest_exists || !is_array($meta = elgglp_read_manifest($curdir)) ) {
+				if ( !$meta_exists || !is_array($meta = elgglp_read_languagemod_meta($curdir)) ) {
+					if ( !$manifest_exists || !is_array($meta = elgglp_read_plugin_manifest($curdir)) ) {
 						continue;
 					}
 				}
-				if ( $callback ) @$callback($meta, "$srcdir/mod/$entry", $filters);
-				if ( $return ) $allmods[] = $meta;
+				if ( $return ) {
+					if ( ($alllangs = elgglp_recurse_languages($meta, "$srcdir/mod/$entry", $filters, null)) ) {
+						$meta['langs'] = $alllangs;
+						$allmods[] = $meta;
+					}
+				} else if ( $callback ) {
+					@call_user_func($callback, $meta, "$srcdir/mod/$entry", $filters);
+				}
 			}
 		}
 	}
 	$dir->close();
-	if ( $return ) return $allmods;
+	if ( $return ) {
+		return $allmods;
+	} else {
+		return ELGGLP_IMPORT_OK;
+	}
+}
+
+function elgglp_core_plugins($version = null) {
+	static $cores = null;
+	if ( !$cores ) {
+		$cores = array(
+			'1.8.8' => array(
+				'core', 'install', // these ones are not real Elgg plugins
+				'blog', 'bookmarks', 'categories', 'custom_index', 'dashboard', 'developers', 'diagnostics', 'embed',
+				'externalpages', 'file', 'garbagecollector', 'groups', 'invitefriends', 'likes', 'logbrowser', 'logrotate',
+				'members', 'messageboard', 'messages', 'notifications', 'oauth_api', 'pages', 'profile', 'reportedcontent',
+				'search', 'tagcloud', 'thewire', 'tinymce', 'twitter', 'twitter_api', 'uservalidationbyemail', 'zaudio'
+			)
+		);
+	}
+	if ( $version ) {
+		return $cores[$version];
+	} else {
+		return $cores;
+	}
 }
