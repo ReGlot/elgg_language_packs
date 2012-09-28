@@ -294,11 +294,11 @@ function elgglp_recurse_language_pack($srcdir, $filters, $callback) {
 	$elgg_version = null;
 	$languagepack_version = null;
 	if ( !elgglp_check_language_pack($srcdir, $elgg_version, $languagepack_version, $needs_meta) ) {
-		return ELGGLP_IMPORT_ERR_STRUCTURE;
+		return ELGGLP_ERR_STRUCTURE;
 	}
 	// is the language pack for the right Language Pack or Elgg version?
 	if ( !in_array($elgg_version, $releases) || ELGGLP_VERSION != $languagepack_version ) {
-		return ELGGLP_IMPORT_ERR_VERSION;
+		return ELGGLP_ERR_VERSION;
 	}
 	// set the detected version into the filters data
 	$filters['elgg_release'] = $elgg_version;
@@ -375,7 +375,7 @@ function elgglp_recurse_language_pack($srcdir, $filters, $callback) {
 	if ( $return ) {
 		return $allmods;
 	} else {
-		return ELGGLP_IMPORT_OK;
+		return ELGGLP_OK;
 	}
 }
 
