@@ -184,8 +184,17 @@ function elgglp_recurse_languages($meta, $srcdir, $filters, $callback) {
 }
 
 function elgglp_copy_file($meta, $file, $lang, $filters) {
-    // work out the destination folder
+    // copy filter options used here into local variables
     $dstdir = $filters['dst_dir'];
+    // if there is not a JavaScript file for this language, create it
+    $jsfile = "$dstdir/views/default/js/languages/$lang.php";
+    if ( !file_exists($jsfile) ) {
+        //@mkdir("$dstdir/views/default/js/languages", 0777, true);
+        $jscode = "<?php
+echo elgg_view('js/languages', array('language' => '$lang'));";
+        file_put_contents($jsfile, $jscode);
+    }
+    // work out the destination folder
     if ( $meta['unique'] == 'install' ) {
         $dstdir = "$dstdir/install";
     } else if ( $meta['unique'] != 'core' ) {
