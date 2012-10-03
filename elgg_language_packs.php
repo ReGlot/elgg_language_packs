@@ -369,7 +369,7 @@ function elgglp_recurse_language_pack($srcdir, $filters, $callback) {
         $curdir = "$srcdir/mod/$entry";
         if ( $entry[0] != '.' && is_dir($curdir) ) {
             // skip if filtered out by user
-            if ( $projs && !in_array($entry, $projs) ) continue;
+            if ( !empty($projs) && !in_array($entry, $projs) ) continue;
             // check whether at least one of meta and manifest files exist
             $meta_file = "$curdir/languages/languagemod.meta";
             $manifest_file = "$curdir/manifest.xml";
