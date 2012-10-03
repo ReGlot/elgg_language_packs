@@ -186,19 +186,25 @@ function elgglp_recurse_languages($meta, $srcdir, $filters, $callback) {
 function elgglp_copy_file($meta, $file, $lang, $filters) {
     // copy filter options used here into local variables
     $dstdir = $filters['dst_dir'];
-    // if there is not a JavaScript file for this language, create it
-    $jsfile = "$dstdir/views/default/js/languages/$lang.php";
-    if ( !file_exists($jsfile) ) {
-        //@mkdir("$dstdir/views/default/js/languages", 0777, true);
-        $jscode = "<?php
-echo elgg_view('js/languages', array('language' => '$lang'));";
-        file_put_contents($jsfile, $jscode);
-    }
+    $needs_meta = $filters['$needs_meta'];
     // work out the destination folder
     if ( $meta['unique'] == 'install' ) {
         $dstdir = "$dstdir/install";
     } else if ( $meta['unique'] != 'core' ) {
         $dstdir = "$dstdir/mod/$meta[unique]";
+    }
+    // if plugin directory is not there, skip this if importing
+    if ( $needs_meta && !file_exists($dstdir) ) {
+        return false;
+    }
+    // if there is not a JavaScript file for this language, create it if importing
+    $jsfile = "$dstdir/views/default/js/languages/$lang.php";
+    if ( $needs_meta && !file_exists($jsfile) ) {
+        //@mkdir("$dstdir/views/default/js/languages", 0777, true);
+        $jscode = "<?php
+echo elgg_view('js/languages', array('language' => '$lang'));
+";
+        file_put_contents($jsfile, $jscode);
     }
     // copy filter options used here into local variables
     $overwrite = (bool)@$filters['overwrite'];
